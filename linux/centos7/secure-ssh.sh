@@ -10,6 +10,7 @@ PUBKEY_FILE="public-keys/id_rsa.pub"
 sudo useradd -m -s /bin/bash $USERNAME
 
 sudo mkdir -p /home/$USERNAME/.ssh/authorized_keys
+sudo cp SYS265/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
 sudo chmod 600 /home/$USERNAME/.ssh/authorized_keys
 
 sudo chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
