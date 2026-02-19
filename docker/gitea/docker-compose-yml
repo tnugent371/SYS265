@@ -1,0 +1,40 @@
+services:
+  db: 
+    image: postgres:16
+    container_name: gitea-db
+    restart: always
+    environment:
+      - POSTGRES_USER=trevor.nugent
+      - POSTGRES_PASSWORD=obviouslySuperSecure123
+      - POSTGRES_DB=gitea
+    volumes:
+      - gitea_db:/var/lib/postgresql/data
+    networks:
+      - gitea_net
+
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea-app
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    environment:
+      - GITEA__database__DB__TYPE=postgres
+      - GITEA__database__HOST=db:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=trevor.nugent
+      - GITEA__database__PASSWD=obviouslySuperSecure123
+    volumes:
+      - gitea_data:/data
+    networks:
+      - gitea_net
+
+volumes:
+  gitea_db:
+  gitea_data:
+
+networks:
+  gitea_net:
