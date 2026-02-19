@@ -9,7 +9,6 @@ USERNAME=$1
 sudo useradd -m -d /home/$USERNAME -s /bin/bash $USERNAME
 
 sudo mkdir /home/$USERNAME/.ssh
-sudo mkdir -p /home/$USERNAME/.ssh/authorized_keys
 sudo cp SYS265/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
 sudo chmod 700 /home/$USERNAME/.ssh
 sudo chmod 600 /home/$USERNAME/.ssh/authorized_keys
