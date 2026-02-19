@@ -5,7 +5,6 @@
 #removes roots ability to ssh in
 
 USERNAME=$1
-PUBKEY_FILE="public-keys/id_rsa.pub"
 
 sudo useradd -m -d /home/$USERNAME -s /bin/bash $USERNAME
 
