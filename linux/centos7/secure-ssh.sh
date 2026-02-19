@@ -7,7 +7,7 @@
 USERNAME=$1
 PUBKEY_FILE="public-keys/id_rsa.pub"
 
-sudo useradd -m -s /bin/bash $USERNAME
+sudo useradd -m -d /home/$USERNAME -s /bin/bash $USERNAME
 
 sudo mkdir /home/$USERNAME/.ssh
 sudo mkdir -p /home/$USERNAME/.ssh/authorized_keys
