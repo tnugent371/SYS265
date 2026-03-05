@@ -1,0 +1,16 @@
+---
+- name: cacti_client sys265
+  hosts: cacti_client
+  become: true
+  vars:
+      install_utilities: false
+      firewalld_disable: true
+  roles:
+  - Oefenweb.cacti_client
+
+  tasks:
+  - name: add firewall rule
+    firewalld:
+      port: 10000/tcp
+      permanent: true
+      state: enabled

@@ -1,0 +1,16 @@
+---
+- name: apache sys265
+  hosts: apache
+  become: true
+  vars:
+      install_utilities: false
+      firewalld_disable: true
+  roles:
+  - geerlingguy.apache
+
+  tasks:
+  - name: add firewall rule
+    firewalld:
+      port: 10000/tcp
+      permanent: true
+      state: enabled
