@@ -1,0 +1,343 @@
+---
+# =============================================================================
+# ANSIBLE PLAYBOOK: Choose Your Own Adventure - 6 Selected Elements
+# =============================================================================
+# Elements covered:
+#   [SysAdmin  1] G01-#1 - NTP/chronyd installed and synchronized (all hosts)
+#   [SysAdmin  2] G03-#1 - Deploy MOTD/login banner (all hosts)
+#   [Hardening 1] G03-#4 - SELinux enforcing (Rocky hosts only)
+#   [Hardening 2] G01-#3 - Disable Telnet & FTP services (all hosts)
+#   [GPO       1] G03-#6 - Disable SMBv1 via registry (Windows domain hosts)
+#   [GPO       2] G03-#5 - Account lockout policy via registry (Windows domain hosts)
+#
+# Usage:
+#   Dry run (recommended first):  ansible-playbook site.yml --check
+#   Apply:                         ansible-playbook site.yml
+#
+# Inventory groups expected:
+#   [windows] - AD01, MGMT01, WKS01
+#   [rocky]   - Ansible01, Ansible02
+#   Controller itself is not a managed host.
+# =============================================================================
+
+
+# =============================================================================
+# PLAY 1 - ALL LINUX/ROCKY HOSTS
+# Covers: SysAdmin #1 (NTP), SysAdmin #2 (MOTD), Hardening #1 (SELinux),
+#         Hardening #2 (disable Telnet/FTP)
+# =============================================================================
+- name: "Play 1 | Linux baseline - NTP, MOTD, SELinux, disable insecure services"
+  hosts: rocky
+  become: true   # escalate to root for package/service management
+
+  vars:
+    # Login banner text - edit as desired
+    motd_banner: |
+      ******************************************************************
+      *  AUTHORIZED ACCESS ONLY                                        *
+      *  All activity on this system is monitored and recorded.        *
+      *  Disconnect immediately if you are not an authorized user.     *
+      ******************************************************************
+
+    # Services to disable on Rocky hosts (Telnet, FTP)
+    insecure_services:
+      - telnet
+      - vsftpd
+      - tftp
+      - tftp-server
+
+  # ---------------------------------------------------------------------------
+  # [SysAdmin #1] NTP - ensure chronyd is installed and running
+  # ---------------------------------------------------------------------------
+  tasks:
+
+    - name: "[SysAdmin #1] Install chrony (NTP daemon)"
+      ansible.builtin.package:
+        name: chrony
+        state: present
+      # ansible.builtin.package is OS-agnostic; works for dnf/yum on Rocky
+
+    - name: "[SysAdmin #1] Enable and start chronyd service"
+      ansible.builtin.service:
+        name: chronyd
+        state: started
+        enabled: true
+
+    - name: "[SysAdmin #1] Verify NTP synchronization status (debug output)"
+      ansible.builtin.command: chronyc tracking
+      register: chrony_status
+      changed_when: false   # read-only check, never counts as a change
+
+    - name: "[SysAdmin #1] Display chronyc tracking output"
+      ansible.builtin.debug:
+        var: chrony_status.stdout_lines
+
+  # ---------------------------------------------------------------------------
+  # [SysAdmin #2] MOTD - deploy login banner to /etc/motd
+  # ---------------------------------------------------------------------------
+
+    - name: "[SysAdmin #2] Deploy login banner to /etc/motd"
+      ansible.builtin.copy:
+        content: "{{ motd_banner }}"
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644'
+      # copy module is idempotent - only changes the file if content differs
+
+  # ---------------------------------------------------------------------------
+  # [Hardening #1] SELinux - enforce on Rocky hosts
+  # ---------------------------------------------------------------------------
+
+    - name: "[Hardening #1] Install python3-libselinux (required for SELinux Ansible module)"
+      ansible.builtin.package:
+        name: python3-libselinux
+        state: present
+
+    - name: "[Hardening #1] Set SELinux to enforcing mode (persistent)"
+      ansible.posix.selinux:
+        policy: targeted
+        state: enforcing
+      # This writes to /etc/selinux/config AND sets runtime mode.
+      # A reboot may be required if the system was previously in permissive/disabled.
+      register: selinux_result
+
+    - name: "[Hardening #1] Notify if reboot is required after SELinux change"
+      ansible.builtin.debug:
+        msg: "SELinux state changed - a reboot may be required to fully enforce."
+      when: selinux_result.reboot_required | default(false)
+
+    - name: "[Hardening #1] Display current SELinux status"
+      ansible.builtin.command: getenforce
+      register: selinux_status
+      changed_when: false
+
+    - name: "[Hardening #1] Debug SELinux status"
+      ansible.builtin.debug:
+        msg: "SELinux is currently: {{ selinux_status.stdout }}"
+
+  # ---------------------------------------------------------------------------
+  # [Hardening #2] Disable insecure services (Telnet, FTP)
+  # ---------------------------------------------------------------------------
+
+    - name: "[Hardening #2] Stop and disable insecure services if installed"
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ insecure_services }}"
+      # ignore_errors because the service simply won't exist on a clean Rocky box
+      ignore_errors: true
+      register: svc_result
+
+    - name: "[Hardening #2] Remove insecure service packages if present"
+      ansible.builtin.package:
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ insecure_services }}"
+      ignore_errors: true
+      # Removing the package is the safest hardening approach -
+      # if it's not installed, it can't be accidentally re-enabled.
+
+    - name: "[Hardening #2] Confirm telnet client package is also absent"
+      ansible.builtin.package:
+        name: telnet
+        state: absent
+
+
+# =============================================================================
+# PLAY 2 - WINDOWS SERVER HOSTS ONLY (AD01, MGMT01)
+# Covers: SysAdmin #1 (NTP/W32tm), SysAdmin #2 (MOTD/legal notice),
+#         Hardening #2 (disable Telnet feature), GPO #1 (SMBv1), GPO #2 (lockout)
+# =============================================================================
+- name: "Play 2 | Windows Server baseline - NTP, banner, disable Telnet, SMBv1, lockout policy"
+  hosts: windows
+  # Note: uses WinRM connection configured in inventory (ansible_connection: winrm)
+
+  vars:
+    # Legal notice banner for Windows login screen (registry-based, no GPMC)
+    win_legal_caption: "Authorized Access Only"
+    win_legal_text: >
+      This system is for authorized users only. All activity is monitored
+      and recorded. Unauthorized access is prohibited and subject to prosecution.
+
+    # Account lockout policy values
+    lockout_threshold: 5       # failed attempts before lockout
+    lockout_duration: 30       # minutes locked out (0 = admin must unlock)
+    lockout_observation: 30    # minutes before bad attempt counter resets
+
+  tasks:
+
+  # ---------------------------------------------------------------------------
+  # [SysAdmin #1] NTP - sync Windows time via w32tm
+  # ---------------------------------------------------------------------------
+
+    - name: "[SysAdmin #1] Ensure Windows Time service (w32tm) is running"
+      ansible.windows.win_service:
+        name: w32tm
+        state: started
+        start_mode: auto
+
+    - name: "[SysAdmin #1] Resync Windows time immediately"
+      ansible.windows.win_command: w32tm /resync /force
+      register: w32tm_resync
+      changed_when: "'The command completed successfully' in w32tm_resync.stdout"
+      ignore_errors: true
+
+    - name: "[SysAdmin #1] Display w32tm resync result"
+      ansible.builtin.debug:
+        var: w32tm_resync.stdout
+
+    - name: "[SysAdmin #1] Query current time sync status"
+      ansible.windows.win_command: w32tm /query /status
+      register: w32tm_status
+      changed_when: false
+
+    - name: "[SysAdmin #1] Show time sync status"
+      ansible.builtin.debug:
+        var: w32tm_status.stdout_lines
+
+  # ---------------------------------------------------------------------------
+  # [SysAdmin #2] MOTD - Windows legal notice banner via registry (no GPMC)
+  # ---------------------------------------------------------------------------
+
+    - name: "[SysAdmin #2] Set Windows login legal notice caption (registry)"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+        name: legalnoticecaption
+        data: "{{ win_legal_caption }}"
+        type: string
+
+    - name: "[SysAdmin #2] Set Windows login legal notice text (registry)"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+        name: legalnoticetext
+        data: "{{ win_legal_text }}"
+        type: string
+
+  # ---------------------------------------------------------------------------
+  # [Hardening #2] Disable Telnet client/server Windows feature
+  # ---------------------------------------------------------------------------
+
+    - name: "[Hardening #2] Disable Telnet Client Windows feature"
+      ansible.windows.win_feature:
+        name: Telnet-Client
+        state: absent
+      ignore_errors: true   # feature may not be present; not an error
+
+    - name: "[Hardening #2] Disable Telnet Server Windows feature (if present)"
+      ansible.windows.win_feature:
+        name: Telnet-Server
+        state: absent
+      ignore_errors: true
+
+  # ---------------------------------------------------------------------------
+  # [GPO #1] Disable SMBv1 via registry (no GPMC needed)
+  # ---------------------------------------------------------------------------
+
+    - name: "[GPO #1] Disable SMBv1 server-side via registry"
+      ansible.windows.win_regedit:
+        path: HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters
+        name: SMB1
+        data: 0
+        type: dword
+      # Setting SMB1 = 0 disables the SMBv1 server component.
+      # This is the registry equivalent of: Set-SmbServerConfiguration -EnableSMB1Protocol $false
+
+    - name: "[GPO #1] Verify SMBv1 registry value"
+      ansible.windows.win_reg_stat:
+        path: HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters
+        name: SMB1
+      register: smb1_check
+
+    - name: "[GPO #1] Debug SMBv1 registry value (should be 0)"
+      ansible.builtin.debug:
+        msg: "SMB1 registry value is: {{ smb1_check.value }} (0 = disabled)"
+
+  # ---------------------------------------------------------------------------
+  # [GPO #2] Account lockout policy via net accounts (no GPMC needed)
+  # ---------------------------------------------------------------------------
+
+    - name: "[GPO #2] Set account lockout threshold"
+      ansible.windows.win_command: >
+        net accounts /lockoutthreshold:{{ lockout_threshold }}
+      register: lockout_threshold_result
+      changed_when: true   # net accounts always exits 0; assume changed
+
+    - name: "[GPO #2] Set account lockout duration"
+      ansible.windows.win_command: >
+        net accounts /lockoutduration:{{ lockout_duration }}
+      register: lockout_duration_result
+      changed_when: true
+
+    - name: "[GPO #2] Set account lockout observation window"
+      ansible.windows.win_command: >
+        net accounts /lockoutwindow:{{ lockout_observation }}
+      register: lockout_window_result
+      changed_when: true
+
+    - name: "[GPO #2] Verify final account policy settings"
+      ansible.windows.win_command: net accounts
+      register: net_accounts_output
+      changed_when: false
+
+    - name: "[GPO #2] Display account policy (confirm lockout values)"
+      ansible.builtin.debug:
+        var: net_accounts_output.stdout_lines
+
+
+# =============================================================================
+# PLAY 3 - WKS01 ONLY (Windows 11 client)
+# Same GPO elements applied to workstation separately for clarity
+# =============================================================================
+- name: "Play 3 | WKS01 - SMBv1 disable and account lockout policy"
+  hosts: WKS01
+
+  vars:
+    lockout_threshold: 5
+    lockout_duration: 30
+    lockout_observation: 30
+
+  tasks:
+
+    - name: "[GPO #1] Disable SMBv1 on WKS01 via registry"
+      ansible.windows.win_regedit:
+        path: HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters
+        name: SMB1
+        data: 0
+        type: dword
+
+    - name: "[GPO #2] Set account lockout threshold on WKS01"
+      ansible.windows.win_command: net accounts /lockoutthreshold:{{ lockout_threshold }}
+      changed_when: true
+
+    - name: "[GPO #2] Set account lockout duration on WKS01"
+      ansible.windows.win_command: net accounts /lockoutduration:{{ lockout_duration }}
+      changed_when: true
+
+    - name: "[GPO #2] Set account lockout observation window on WKS01"
+      ansible.windows.win_command: net accounts /lockoutwindow:{{ lockout_observation }}
+      changed_when: true
+
+    - name: "[GPO #2] Display WKS01 account policy"
+      ansible.windows.win_command: net accounts
+      register: wks01_accounts
+      changed_when: false
+
+    - name: "[GPO #2] Debug WKS01 account policy output"
+      ansible.builtin.debug:
+        var: wks01_accounts.stdout_lines
+
+    - name: "[SysAdmin #2] Set login banner on WKS01"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+        name: legalnoticecaption
+        data: "Authorized Access Only"
+        type: string
+
+    - name: "[SysAdmin #2] Set login banner text on WKS01"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+        name: legalnoticetext
+        data: "This system is for authorized users only. All activity is monitored."
+        type: string
