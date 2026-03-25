@@ -32,7 +32,7 @@
     # --- Element 2 vars ---
     # Point all Rocky hosts at AD01 for DNS resolution.
     # AD01 holds the only forward and reverse lookup zones.
-    dns_server_ip: "192.168.1.10"   # <-- replace with your AD01 IP
+    dns_server_ip: "10.0.5.5"   # <-- replace with your AD01 IP
     dns_domain:    "lab.local"      # <-- replace with your domain name
 
   tasks:
