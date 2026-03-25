@@ -1,9 +1,13 @@
 [apache]
 ansible01-trevor
 [webmin]
-ansible02-trevor
+ansible01-trevor
 [windows]
 mgmt01-trevor
 wks01-trevor
 [windows:vars]
 ansible_shell_type=powershell
+
+[rocky]
+ansible01-trevor
+ansible02-trevor
