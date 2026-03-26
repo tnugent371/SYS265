@@ -6,7 +6,13 @@ ansible01-trevor
 mgmt01-trevor
 wks01-trevor
 [windows:vars]
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_winrm_port=5985
+ansible_winrm_scheme=http
 ansible_shell_type=powershell
+ansible_user=Administrator
+ansible_password=#Put your pw
 
 [rocky]
 ansible01-trevor
