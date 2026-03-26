@@ -286,4 +286,4 @@
 
     - name: "E6 | Debug — screen saver lock value"
       debug:
-        msg: "ScreenSaverIsSecure = {{ ss_stat.value }} (expected 1)"
+        msg: "ScreenSaverIsSecure = {{ ss_stat.value | default('key not found') }} (expected 1)"
