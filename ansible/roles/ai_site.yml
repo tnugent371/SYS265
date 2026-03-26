@@ -242,7 +242,7 @@
 
     - name: "E5 | Debug — SMBv1 server key value"
       debug:
-        msg: "SMB1 registry value is: {{ smb1_stat.value }} (expected 0)"
+        msg: "SMB1 registry value is: {{ smb1_stat.value | default('key not found') }} (expected 0)"
 
     # ------------------------------------------------------------------
     # Element 6 — Screen saver timeout and password-protected lock
