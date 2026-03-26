@@ -11,7 +11,7 @@ ansible_winrm_transport=ntlm
 ansible_winrm_port=5985
 ansible_winrm_scheme=http
 ansible_shell_type=powershell
-ansible_user=Administrator
+ansible_user=Deployer
 ansible_password=#Put your pw
 
 [rocky]
